@@ -45,6 +45,7 @@ async fn root() -> impl IntoResponse {
                         _="on htmx:xhr:progress(loaded, total) set #progress.value to (loaded/total)*100"
                         >
                         <input type="file" name="file" required class="file:text-center file:px-5 file:py-2 file:no-underline file:font-bold file:border-0 hover:cursor-pointer hover:file:cursor-pointer file:outline-none file:w-1/2 file:text-blue-700 file:bg-blue-100 file:hover:bg-blue-200" />
+                        <input type="submit" value="Upload" class="text-center mt-5 px-5 py-2 no-underline font-bold border-0 hover:cursor-pointer hover:outline-none text-white bg-blue-600 hover:bg-blue-700" />
                     </form>
                 </main>
                 <footer class="flex py-2">
