@@ -6,11 +6,13 @@ use axum::{extract::DefaultBodyLimit, routing::post, Router};
 use bytesize::{ByteSize, MB};
 use html_to_string_macro::html;
 use std::net::SocketAddr;
+use tower_http::services::ServeDir;
 
 #[tokio::main]
 async fn main() {
     let app = Router::new()
         .route("/", get(root))
+        .nest_service("/static", ServeDir::new("static"))
         .route("/upload", post(upload))
         .layer(DefaultBodyLimit::disable());
 
@@ -30,22 +32,24 @@ async fn root() -> impl IntoResponse {
             <head>
                 <title>{title}</title>
                 <script src="https://unpkg.com/htmx.org@1.9.4"></script>
-                <script src="https://cdn.tailwindcss.com"></script>
+                <link rel="stylesheet" href="/static/dist/css/style.css" />
             </head>
-            <body>
-                <main class="container mx-auto max-w-xl">
-                    <h1 class="text-3xl font-bold mb-3">{title}</h1>
-                    <h2 class="text-xl font-bold mb-3">"Upload file"</h2>
+            <body class="flex flex-col min-h-screen max-w-none">
+                <main class="container mx-auto max-w-lg prose flex-grow">
+                    <h1>{title}</h1>
+                    <h2>"Upload file"</h2>
                     <form
-                        class="grid grid-cols-1 gap-2 w-1/2"
+                        class="grid grid-cols-1 gap-2 mx-auto"
                         hx-encoding="multipart/form-data"
                         hx-post="/upload"
                         _="on htmx:xhr:progress(loaded, total) set #progress.value to (loaded/total)*100"
                         >
-                        <input type="file" name="file" required />
-                        <button class="bg-blue-500 text-white p-2">"Upload"</button>
+                        <input type="file" name="file" required class="file:text-center file:px-5 file:py-2 file:no-underline file:font-bold file:border-0 hover:cursor-pointer hover:file:cursor-pointer file:outline-none file:w-1/2 file:text-blue-700 file:bg-blue-100 file:hover:bg-blue-200" />
                     </form>
                 </main>
+                <footer class="flex py-2">
+                    <img src="https://htmx.org/img/createdwith.jpeg" alt="HTMX banner" class="inline-block h-20 w-auto mx-auto" width="680" height="168" />
+                </footer>
                 <script>
                     "document.body.addEventListener('htmx:responseError', (event) => {
                         event.preventDefault();
