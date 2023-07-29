@@ -37,14 +37,15 @@ async fn root() -> impl IntoResponse {
             <body class="flex flex-col min-h-screen max-w-none">
                 <main class="container mx-auto max-w-lg prose flex-grow">
                     <h1>{title}</h1>
-                    <h2>"Upload file"</h2>
+                    <h2>"Upload a meme"</h2>
                     <form
                         class="grid grid-cols-1 gap-2 mx-auto"
                         hx-encoding="multipart/form-data"
                         hx-post="/upload"
                         _="on htmx:xhr:progress(loaded, total) set #progress.value to (loaded/total)*100"
                         >
-                        <input type="file" name="file" required class="file:text-center file:px-5 file:py-2 file:no-underline file:font-bold file:border-0 hover:cursor-pointer hover:file:cursor-pointer file:outline-none file:w-1/2 file:text-blue-700 file:bg-blue-100 file:hover:bg-blue-200" />
+                        <label for="meme-file">"Meme "<span>"("<kbd>"Ctrl"</kbd>" + "<kbd>"V"</kbd>" to paste from clipboard)"</span></label>
+                        <input type="file" name="meme-file" required class="file:text-center file:px-5 file:py-2 file:no-underline file:font-bold file:border-0 hover:cursor-pointer hover:file:cursor-pointer file:outline-none file:w-1/2 file:text-blue-700 file:bg-blue-100 file:hover:bg-blue-200" />
                         <input type="submit" value="Upload" class="text-center mt-5 px-5 py-2 no-underline font-bold border-0 hover:cursor-pointer hover:outline-none text-white bg-blue-600 hover:bg-blue-700" />
                     </form>
                 </main>
@@ -60,7 +61,24 @@ async fn root() -> impl IntoResponse {
                         } else {
                             event.detail.target.innerHTML = event.detail.xhr.statusText;
                         }
-                    });"
+                    });
+                    // Check if a file is in clipboard and, if yes, allow to paste it.
+                    document.addEventListener('paste', (event) => {
+                        const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                        for (const item of items) {
+                            if (item.kind === 'file') {
+                                event.preventDefault();
+                                const file = item.getAsFile();
+                                const form = document.querySelector('form');
+                                const input = document.querySelector('input[type=file]');
+                                const dataTransfer = new DataTransfer();
+                                dataTransfer.items.add(file);
+                                input.files = dataTransfer.files;
+                                console.log('File pasted: ', file);
+                            }
+                        }
+                    });
+                    "
                 </script>
             </body>
         </html>
