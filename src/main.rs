@@ -1,5 +1,5 @@
 use axum::extract::Multipart;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{extract::DefaultBodyLimit, routing::post, Router};
@@ -14,6 +14,7 @@ async fn main() {
         .route("/", get(root))
         .nest_service("/static", ServeDir::new("static"))
         .route("/upload", post(upload))
+        .route("/existing-memes", get(existing_memes))
         .layer(DefaultBodyLimit::disable());
 
     let port = 8080;
@@ -35,7 +36,7 @@ async fn root() -> impl IntoResponse {
                 <link rel="stylesheet" href="/static/dist/css/style.css" />
             </head>
             <body class="flex flex-col min-h-screen max-w-none">
-                <main class="container mx-auto max-w-lg prose flex-grow">
+                <main class="container mx-auto max-w-lg prose flex-grow pb-10">
                     <h1>{title}</h1>
                     <h2>"Upload a meme"</h2>
                     <form
@@ -51,17 +52,12 @@ async fn root() -> impl IntoResponse {
 
 
                     <h2>"Existing memes"</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mx-auto">
-                      {
-                          let mut all_uploads_html = html! {};
-                          for upload_src in all_uploads() {
-                              all_uploads_html = html! {
-                                  {all_uploads_html}
-                                  <img src={format!("/static/uploads/{upload_src}")} class="w-full" />
-                              }
-                          }
-                          all_uploads_html
-                      }
+                    <div
+                        class="grid grid-cols-1 md:grid-cols-2 gap-2 mx-auto"
+                        hx-get="/existing-memes"
+                        hx-trigger="upload-successful from:body"
+                    >
+                      {existing_memes().await}
                     </div>
                 </main>
                 <footer class="flex py-2">
@@ -102,7 +98,7 @@ async fn root() -> impl IntoResponse {
 
 /// Uploads a file. The file is read in chunks and the total size is limited to 10 MB.
 /// It is stored at `static/uploads/<uuid>.<ext>`.
-async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
+async fn upload(mut multipart: Multipart) -> (StatusCode, HeaderMap, impl IntoResponse) {
     const MAX_SIZE: u64 = 10 * MB;
 
     while let Some(mut field) = multipart.next_field().await.unwrap() {
@@ -113,6 +109,7 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
             _ => {
                 return (
                     StatusCode::BAD_REQUEST,
+                    HeaderMap::new(),
                     Html(html! {
                         <span class="text-red-500">"Invalid file type " <code>{mime}</code> "."</span>
                     }),
@@ -128,6 +125,7 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
                 Err(e) => {
                     return (
                         e.status(),
+                        HeaderMap::new(),
                         Html(html! {
                             <span class="text-red-500">{e}</span>
                         }),
@@ -138,6 +136,7 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
                     if total as u64 > MAX_SIZE {
                         return (
                             StatusCode::PAYLOAD_TOO_LARGE,
+                            HeaderMap::new(),
                             Html(html! {
                                 <span class="text-red-500">"File too large! Max size is " {ByteSize(MAX_SIZE)} "."</span>
                             }),
@@ -151,8 +150,12 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
         }
         println!("done reading `{}`, total {} bytes", name, total);
     }
+    let mut headers = HeaderMap::new();
+    headers.insert("HX-Trigger", "upload-successful".parse().unwrap());
+
     (
         StatusCode::OK,
+        headers,
         Html(html! {
             <span class="text-green-500">"Upload successful!"</span>
         }),
@@ -164,4 +167,19 @@ fn all_uploads() -> Vec<String> {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect()
+}
+
+async fn existing_memes() -> String {
+    html! {
+        {
+            let mut all_uploads_html = html! {};
+            for upload_src in all_uploads() {
+                all_uploads_html = html! {
+                    {all_uploads_html}
+                    <img src={format!("/static/uploads/{upload_src}")} class="w-full" />
+                }
+            }
+            all_uploads_html
+        }
+    }
 }
