@@ -45,9 +45,24 @@ async fn root() -> impl IntoResponse {
                         _="on htmx:xhr:progress(loaded, total) set #progress.value to (loaded/total)*100"
                         >
                         <label for="meme-file">"Meme "<span>"("<kbd>"Ctrl"</kbd>" + "<kbd>"V"</kbd>" to paste from clipboard)"</span></label>
-                        <input type="file" name="meme-file" required class="file:text-center file:px-5 file:py-2 file:no-underline file:font-bold file:border-0 hover:cursor-pointer hover:file:cursor-pointer file:outline-none file:w-1/2 file:text-blue-700 file:bg-blue-100 file:hover:bg-blue-200" />
+                        <input type="file" id="meme-file" name="meme-file" required class="file:text-center file:px-5 file:py-2 file:no-underline file:font-bold file:border-0 hover:cursor-pointer hover:file:cursor-pointer file:outline-none file:w-1/2 file:text-blue-700 file:bg-blue-100 file:hover:bg-blue-200" />
                         <input type="submit" value="Upload" class="text-center mt-5 px-5 py-2 no-underline font-bold border-0 hover:cursor-pointer hover:outline-none text-white bg-blue-600 hover:bg-blue-700" />
                     </form>
+
+
+                    <h2>"Existing memes"</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mx-auto">
+                      {
+                          let mut all_uploads_html = html! {};
+                          for upload_src in all_uploads() {
+                              all_uploads_html = html! {
+                                  {all_uploads_html}
+                                  <img src={format!("/static/uploads/{upload_src}")} class="w-full" />
+                              }
+                          }
+                          all_uploads_html
+                      }
+                    </div>
                 </main>
                 <footer class="flex py-2">
                     <img src="https://htmx.org/img/createdwith.jpeg" alt="HTMX banner" class="inline-block h-20 w-auto mx-auto" width="680" height="168" />
@@ -85,13 +100,29 @@ async fn root() -> impl IntoResponse {
     })
 }
 
+/// Uploads a file. The file is read in chunks and the total size is limited to 10 MB.
+/// It is stored at `static/uploads/<uuid>.<ext>`.
 async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
     const MAX_SIZE: u64 = 10 * MB;
 
     while let Some(mut field) = multipart.next_field().await.unwrap() {
-        let name = field.name().unwrap().to_string();
+        let mime = field.content_type().unwrap();
+        let ext = match mime {
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Html(html! {
+                        <span class="text-red-500">"Invalid file type " <code>{mime}</code> "."</span>
+                    }),
+                )
+            }
+        };
+        let name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
 
         let mut total = 0;
+        let mut file = std::fs::File::create(format!("static/uploads/{}", name)).unwrap();
         loop {
             match field.chunk().await {
                 Err(e) => {
@@ -112,6 +143,7 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
                             }),
                         );
                     }
+                    std::io::copy(&mut chunk.as_ref(), &mut file).unwrap();
                     println!("received {} bytes (total {})", chunk.len(), total);
                 }
                 Ok(None) => break,
@@ -125,4 +157,11 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, impl IntoResponse) {
             <span class="text-green-500">"Upload successful!"</span>
         }),
     )
+}
+
+fn all_uploads() -> Vec<String> {
+    std::fs::read_dir("static/uploads")
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect()
 }
