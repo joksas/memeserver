@@ -7,6 +7,7 @@ use axum::{extract::DefaultBodyLimit, routing::post, Router};
 use bytesize::{ByteSize, MB};
 use html_to_string_macro::html;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::str::FromStr;
 use tower_http::services::ServeDir;
 
@@ -169,44 +170,62 @@ fn error_html(msg: String) -> String {
 async fn field_to_meme(field: &mut Field<'_>) -> Result<Meme, String> {
     const MAX_SIZE: u64 = 10 * MB;
 
-    let mime = field.content_type().unwrap();
+    let mime = match field.content_type() {
+        Some(mime) => mime,
+        None => return Err("missing media type".to_string()),
+    };
     let media_type = match MediaType::from_str(mime) {
         Ok(media_type) => media_type,
         Err(e) => return Err(e),
     };
-    let name = format!("{}.{}", uuid::Uuid::new_v4(), media_type.extension());
+    let filename = format!("{}.{}", uuid::Uuid::new_v4(), media_type.extension());
+    let local_filepath = std::path::Path::new("static/uploads").join(&filename);
 
-    let mut total = 0;
-    let mut file = std::fs::File::create(format!("static/uploads/{}", name)).unwrap();
-    loop {
-        match field.chunk().await {
-            Err(e) => return Err(format!("{}", e)),
-            Ok(Some(chunk)) => {
-                total += chunk.len();
-                if total as u64 > MAX_SIZE {
-                    return Err(format!(
-                        "File too large! Max size is {}.",
-                        ByteSize(MAX_SIZE)
-                    ));
-                }
-                std::io::copy(&mut chunk.as_ref(), &mut file).unwrap();
-                println!("received {} bytes (total {})", chunk.len(), total);
-            }
-            Ok(None) => break,
-        }
-    }
-    println!("done reading `{}`, total {} bytes", name, total);
+    extract_file(field, &local_filepath, MAX_SIZE).await?;
 
     Ok(Meme {
         meme_type: MemeType::Image {
             media_type,
             url: url::Url::parse(
-                format!("https://localhost:8000/static/uploads/{}", name).as_str(),
+                format!("https://localhost:8000/static/uploads/{}", filename).as_str(),
             )
             .unwrap(),
         },
         created_at: chrono::Utc::now(),
     })
+}
+
+async fn extract_file(
+    field: &mut Field<'_>,
+    local_filepath: &std::path::Path,
+    max_size: u64,
+) -> Result<(), String> {
+    let mut total = 0;
+    let mut file = std::fs::File::create(local_filepath).map_err(|e| format!("{}", e))?;
+    loop {
+        match field.chunk().await {
+            Err(e) => return Err(format!("{}", e)),
+            Ok(Some(chunk)) => {
+                total += chunk.len();
+                if total as u64 > max_size {
+                    return Err(format!(
+                        "File too large! Max size is {}",
+                        ByteSize(max_size)
+                    ));
+                }
+                std::io::copy(&mut chunk.as_ref(), &mut file).unwrap();
+                println!("received {} bytes (total {})", chunk.len(), total);
+            }
+            Ok(None) => {
+                println!(
+                    "done reading `{}`, total {} bytes",
+                    field.name().unwrap_or("unknown-file"),
+                    total
+                );
+                return Ok(());
+            }
+        }
+    }
 }
 
 fn all_uploads() -> Vec<String> {
