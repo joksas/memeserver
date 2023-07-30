@@ -37,6 +37,7 @@ async fn root() -> impl IntoResponse {
                 <title>{title}</title>
                 <script src="https://unpkg.com/htmx.org@1.9.4"></script>
                 <link rel="stylesheet" href="/static/dist/css/style.css" />
+                <link rel="icon" type="image/svg+xml" href="https://upload.wikimedia.org/wikipedia/commons/f/fb/Emoji_u1f610.svg" />
             </head>
             <body class="flex flex-col min-h-screen max-w-none">
                 <main class="container mx-auto max-w-lg prose flex-grow pb-10">
