@@ -34,7 +34,7 @@ async fn root() -> impl IntoResponse {
     Html(html! {
         <html>
             <head>
-                <title>{title}</title>
+                <title>{title}" | Meme Server"</title>
                 <script src="https://unpkg.com/htmx.org@1.9.4"></script>
                 <link rel="stylesheet" href="/static/dist/css/style.css" />
                 <link rel="icon" type="image/svg+xml" href="https://upload.wikimedia.org/wikipedia/commons/f/fb/Emoji_u1f610.svg" />
