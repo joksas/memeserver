@@ -7,6 +7,7 @@ use axum::{extract::DefaultBodyLimit, routing::post, Router};
 use bytesize::{ByteSize, MB};
 use html_to_string_macro::html;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use tower_http::services::ServeDir;
 
 #[tokio::main]
@@ -168,17 +169,12 @@ fn error_html(msg: String) -> String {
 async fn field_to_meme(field: &mut Field<'_>) -> Result<Meme, String> {
     const MAX_SIZE: u64 = 10 * MB;
 
-    let mime = &field.content_type().unwrap();
-    let media_type = match *mime {
-        "image/jpeg" => MediaType::ImageJpeg,
-        "image/png" => MediaType::ImagePng,
-        _ => return Err(format!("Invalid file type {}", mime)),
+    let mime = field.content_type().unwrap();
+    let media_type = match MediaType::from_str(mime) {
+        Ok(media_type) => media_type,
+        Err(e) => return Err(e),
     };
-    let ext = match media_type {
-        MediaType::ImageJpeg => "jpg",
-        MediaType::ImagePng => "png",
-    };
-    let name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let name = format!("{}.{}", uuid::Uuid::new_v4(), media_type.extension());
 
     let mut total = 0;
     let mut file = std::fs::File::create(format!("static/uploads/{}", name)).unwrap();
@@ -239,6 +235,36 @@ async fn existing_memes() -> String {
 enum MediaType {
     ImageJpeg,
     ImagePng,
+}
+
+impl std::fmt::Display for MediaType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MediaType::ImageJpeg => write!(f, "image/jpeg"),
+            MediaType::ImagePng => write!(f, "image/png"),
+        }
+    }
+}
+
+impl FromStr for MediaType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "image/jpeg" => Ok(MediaType::ImageJpeg),
+            "image/png" => Ok(MediaType::ImagePng),
+            _ => Err(format!("Invalid media type {}", s)),
+        }
+    }
+}
+
+impl MediaType {
+    fn extension(&self) -> &'static str {
+        match self {
+            MediaType::ImageJpeg => "jpg",
+            MediaType::ImagePng => "png",
+        }
+    }
 }
 
 #[derive(Debug)]
