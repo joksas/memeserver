@@ -1,3 +1,4 @@
+use axum::extract::multipart::Field;
 use axum::extract::Multipart;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse};
@@ -99,57 +100,53 @@ async fn root() -> impl IntoResponse {
 /// Uploads a file. The file is read in chunks and the total size is limited to 10 MB.
 /// It is stored at `static/uploads/<uuid>.<ext>`.
 async fn upload(mut multipart: Multipart) -> (StatusCode, HeaderMap, impl IntoResponse) {
-    const MAX_SIZE: u64 = 10 * MB;
+    // Extract field with name `meme-file` from the multipart request.
+    // If there is no such field, return a 400 Bad Request response.
+    let mut field: Field;
 
-    while let Some(mut field) = multipart.next_field().await.unwrap() {
-        let mime = field.content_type().unwrap();
-        let ext = match mime {
-            "image/jpeg" => "jpg",
-            "image/png" => "png",
-            _ => {
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(iter_field)) if iter_field.name() == Some("meme-file") => {
+                field = iter_field;
+                break;
+            }
+            Ok(Some(_)) => continue,
+            Ok(None) => {
                 return (
                     StatusCode::BAD_REQUEST,
                     HeaderMap::new(),
-                    Html(html! {
-                        <span class="text-red-500">"Invalid file type " <code>{mime}</code> "."</span>
-                    }),
+                    Html(error_html(
+                        html! { "Missing field "<code>"meme-file"</code>"." },
+                    )),
                 )
             }
-        };
-        let name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
-
-        let mut total = 0;
-        let mut file = std::fs::File::create(format!("static/uploads/{}", name)).unwrap();
-        loop {
-            match field.chunk().await {
-                Err(e) => {
-                    return (
-                        e.status(),
-                        HeaderMap::new(),
-                        Html(html! {
-                            <span class="text-red-500">{e}</span>
-                        }),
-                    )
-                }
-                Ok(Some(chunk)) => {
-                    total += chunk.len();
-                    if total as u64 > MAX_SIZE {
-                        return (
-                            StatusCode::PAYLOAD_TOO_LARGE,
-                            HeaderMap::new(),
-                            Html(html! {
-                                <span class="text-red-500">"File too large! Max size is " {ByteSize(MAX_SIZE)} "."</span>
-                            }),
-                        );
-                    }
-                    std::io::copy(&mut chunk.as_ref(), &mut file).unwrap();
-                    println!("received {} bytes (total {})", chunk.len(), total);
-                }
-                Ok(None) => break,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    HeaderMap::new(),
+                    Html(error_html(
+                        html! { "Error processing the file: "<code>{err}</code>"." },
+                    )),
+                )
             }
         }
-        println!("done reading `{}`, total {} bytes", name, total);
     }
+
+    let meme = match field_to_meme(&mut field).await {
+        Ok(meme) => meme,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                HeaderMap::new(),
+                Html(error_html(
+                    html! { "Error processing the file: "<code>{err}</code>"." },
+                )),
+            )
+        }
+    };
+
+    println!("Uploaded meme: {:?}", meme);
+
     let mut headers = HeaderMap::new();
     headers.insert("HX-Trigger", "upload-successful".parse().unwrap());
 
@@ -160,6 +157,60 @@ async fn upload(mut multipart: Multipart) -> (StatusCode, HeaderMap, impl IntoRe
             <span class="text-green-500">"Upload successful!"</span>
         }),
     )
+}
+
+fn error_html(msg: String) -> String {
+    html! {
+        <span class="text-red-500">{msg}</span>
+    }
+}
+
+async fn field_to_meme(field: &mut Field<'_>) -> Result<Meme, String> {
+    const MAX_SIZE: u64 = 10 * MB;
+
+    let mime = &field.content_type().unwrap();
+    let media_type = match *mime {
+        "image/jpeg" => MediaType::ImageJpeg,
+        "image/png" => MediaType::ImagePng,
+        _ => return Err(format!("Invalid file type {}", mime)),
+    };
+    let ext = match media_type {
+        MediaType::ImageJpeg => "jpg",
+        MediaType::ImagePng => "png",
+    };
+    let name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+
+    let mut total = 0;
+    let mut file = std::fs::File::create(format!("static/uploads/{}", name)).unwrap();
+    loop {
+        match field.chunk().await {
+            Err(e) => return Err(format!("{}", e)),
+            Ok(Some(chunk)) => {
+                total += chunk.len();
+                if total as u64 > MAX_SIZE {
+                    return Err(format!(
+                        "File too large! Max size is {}.",
+                        ByteSize(MAX_SIZE)
+                    ));
+                }
+                std::io::copy(&mut chunk.as_ref(), &mut file).unwrap();
+                println!("received {} bytes (total {})", chunk.len(), total);
+            }
+            Ok(None) => break,
+        }
+    }
+    println!("done reading `{}`, total {} bytes", name, total);
+
+    Ok(Meme {
+        meme_type: MemeType::Image {
+            media_type,
+            url: url::Url::parse(
+                format!("https://localhost:8000/static/uploads/{}", name).as_str(),
+            )
+            .unwrap(),
+        },
+        created_at: chrono::Utc::now(),
+    })
 }
 
 fn all_uploads() -> Vec<String> {
@@ -182,4 +233,24 @@ async fn existing_memes() -> String {
             all_uploads_html
         }
     }
+}
+
+#[derive(Debug)]
+enum MediaType {
+    ImageJpeg,
+    ImagePng,
+}
+
+#[derive(Debug)]
+enum MemeType {
+    Image {
+        media_type: MediaType,
+        url: url::Url,
+    },
+}
+
+#[derive(Debug)]
+struct Meme {
+    meme_type: MemeType,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
